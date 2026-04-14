@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Painel Edmundo Peças</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+body { background: #0f1117; color: #e0e0e0; padding: 16px; }
+h1 { font-size: 20px; font-weight: 600; color: #fff; }
+.subtitle { font-size: 13px; color: #888; margin-top: 2px; }
+.header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 16px; border-bottom: 1px solid #2a2a2a; margin-bottom: 20px; flex-wrap: wrap; gap: 8px; }
+.badge { font-size: 11px; padding: 4px 12px; border-radius: 20px; font-weight: 500; }
+.badge.ok { background: #0d3320; color: #4ade80; }
+.badge.warn { background: #3a2a00; color: #fbbf24; }
+.badge.err { background: #3a0d0d; color: #f87171; }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.metric { background: #1a1d27; border-radius: 12px; padding: 16px; }
+.metric .label { font-size: 12px; color: #888; margin-bottom: 6px; }
+.metric .value { font-size: 22px; font-weight: 600; color: #fff; }
+.metric .change { font-size: 12px; color: #666; margin-top: 4px; }
+.charts-row { display: grid; grid-template-columns: 1.6fr 1fr; gap: 12px; margin-bottom: 12px; }
+.charts-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+@media(max-width:600px) { .charts-row, .charts-row2 { grid-template-columns: 1fr; } }
+.card { background: #1a1d27; border-radius: 12px; padding: 16px; }
+.card-title { font-size: 11px; font-weight: 600; color: #666; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 14px; }
+.spinner-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px; gap: 12px; }
+.spinner { width: 32px; height: 32px; border: 3px solid #2a2a2a; border-top-color: #378ADD; border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.error-box { background: #3a0d0d; border-radius: 10px; padding: 14px; font-size: 13px; color: #f87171; margin-bottom: 16px; display: none; }
+.forn-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.forn-name { font-size: 12px; color: #ccc; min-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-track { flex: 1; height: 7px; background: #2a2a2a; border-radius: 4px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 4px; }
+.bar-val { font-size: 11px; color: #888; min-width: 75px; text-align: right; }
+.alert-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #2a2a2a; }
+.alert-row:last-child { border-bottom: none; }
+.alert-name { font-size: 12px; color: #ccc; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pill { font-size: 11px; padding: 2px 8px; border-radius: 20px; font-weight: 500; }
+.pill.danger { background: #3a0d0d; color: #f87171; }
+.pill.warning { background: #3a2a00; color: #fbbf24; }
+.pill.ok { background: #0d3320; color: #4ade80; }
+.refresh-btn { display: block; width: 100%; padding: 12px; margin-top: 16px; border-radius: 10px; border: 1px solid #2a2a2a; background: #1a1d27; color: #ccc; font-size: 13px; cursor: pointer; text-align: center; }
+.refresh-btn:hover { background: #222533; }
+.legend { display: flex; gap: 16px; margin-bottom: 8px; font-size: 11px; color: #888; flex-wrap: wrap; }
+.legend span { display: flex; align-items: center; gap: 4px; }
+.legend-dot { width: 10px; height: 10px; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>Edmundo Peças — painel de compras</h1>
+    <div class="subtitle" id="lastUpdate">Carregando dados...</div>
+  </div>
+  <span class="badge warn" id="statusBadge">Carregando...</span>
+</div>
+
+<div class="error-box" id="errorBox"></div>
+<div id="mainContent">
+  <div class="spinner-wrap">
+    <div class="spinner"></div>
+    <span style="font-size:13px;color:#888;">Lendo dados do OneDrive...</span>
+  </div>
+</div>
+
+<script>
+const PROXY = 'https://api.allorigins.win/raw?url=';
+const FILE_URL = 'https://1drv.ms/x/c/b78210cff7cda56a/IQCZ0yGGypuKTblPe3QsTjQKAZvEliGThiljuYGsoina4Vo?e=LVwJJs&download=1';
+let charts = {};
+
+function fmt(v) { return 'R$ ' + Math.round(Number(v)||0).toLocaleString('pt-BR'); }
+
+function setStatus(msg, type) {
+  const b = document.getElementById('statusBadge');
+  b.textContent = msg;
+  b.className = 'badge ' + type;
+}
+
+function showError(msg) {
+  const b = document.getElementById('errorBox');
+  b.style.display = 'block';
+  b.textContent = msg;
+  setStatus('Erro', 'err');
+}
+
+function buildDashboard(rows) {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = `
+    <div class="metrics">
+      <div class="metric"><div class="label">Total em compras</div><div class="value" id="m1">—</div><div class="change">período completo</div></div>
+      <div class="metric"><div class="label">Total de pedidos</div><div class="value" id="m2">—</div><div class="change">registros</div></div>
+      <div class="metric"><div class="label">Fornecedores</div><div class="value" id="m3">—</div><div class="change">ativos</div></div>
+      <div class="metric"><div class="label">Ticket médio</div><div class="value" id="m4">—</div><div class="change">por pedido</div></div>
+    </div>
+    <div class="charts-row">
+      <div class="card">
+        <div class="card-title">Compras por mês (R$)</div>
+        <div class="legend"><span><span class="legend-dot" style="background:#378ADD;"></span>Compras</span><span><span class="legend-dot" style="background:#1D9E75;"></span>Média</span></div>
+        <div style="position:relative;width:100%;height:220px;"><canvas id="cMensal"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Por fornecedor</div>
+        <div style="position:relative;width:100%;height:240px;"><canvas id="cPizza"></canvas></div>
+      </div>
+    </div>
+    <div class="charts-row2">
+      <div class="card"><div class="card-title">Top fornecedores</div><div id="fornDiv"></div></div>
+      <div class="card"><div class="card-title">Produtos mais comprados</div><div id="prodDiv"></div></div>
+    </div>
+    <button class="refresh-btn" onclick="loadData()">Atualizar dados</button>
+  `;
+
+  const cols = Object.keys(rows[0]||{});
+  const find = (kw) => cols.find(c => kw.some(k => c.toLowerCase().includes(k))) || cols[0];
+  const colForn = find(['parceiro','fornec','razao','fantasia','nome_par']);
+  const colVal  = find(['vl_total','valor_total','total','vl_liq','valor']);
+  const colData = find(['dt_entrada','data_entrada','dt_mov','data','dtemissao']);
+  const colProd = find(['nm_material','descr','material','produto','item']);
+  const colQtd  = find(['qt_entrada','qtd','quantidade','qt_mov']);
+
+  let totalVal = 0, fornMap = {}, mesMap = {}, prodMap = {};
+  rows.forEach(r => {
+    const v = parseFloat(String(r[colVal]||'0').replace(',','.')) || 0;
+    totalVal += v;
+    const forn = String(r[colForn]||'').trim() || 'Não informado';
+    fornMap[forn] = (fornMap[forn]||0) + v;
+    const d = String(r[colData]||'');
+    const mes = d.length >= 7 ? d.substring(0,7) : d.substring(0,4);
+    if(mes) mesMap[mes] = (mesMap[mes]||0) + v;
+    const prod = String(r[colProd]||'').trim() || 'Não informado';
+    const qtd = parseFloat(String(r[colQtd]||'1').replace(',','.')) || 1;
+    if(!prodMap[prod]) prodMap[prod] = {val:0,qtd:0};
+    prodMap[prod].val += v; prodMap[prod].qtd += qtd;
+  });
+
+  const fornList = Object.entries(fornMap).sort((a,b)=>b[1]-a[1]);
+  const prodList = Object.entries(prodMap).sort((a,b)=>b[1].val-a[1].val);
+  const mesLabels = Object.keys(mesMap).sort().slice(-8);
+  const mesData = mesLabels.map(m => Math.round(mesMap[m]||0));
+  const avg = mesData.length ? Math.round(mesData.reduce((a,b)=>a+b,0)/mesData.length) : 0;
+
+  document.getElementById('m1').textContent = fmt(totalVal);
+  document.getElementById('m2').textContent = rows.length.toLocaleString('pt-BR');
+  document.getElementById('m3').textContent = fornList.length;
+  document.getElementById('m4').textContent = rows.length ? fmt(totalVal/rows.length) : '—';
+
+  if(charts.mensal) charts.mensal.destroy();
+  charts.mensal = new Chart(document.getElementById('cMensal'), {
+    type:'bar',
+    data:{ labels:mesLabels, datasets:[
+      { label:'Compras', data:mesData, backgroundColor:'#378ADD', borderRadius:4 },
+      { label:'Média', data:mesLabels.map(()=>avg), type:'line', borderColor:'#1D9E75', borderWidth:2, pointRadius:0, fill:false, borderDash:[5,4], backgroundColor:'transparent' }
+    ]},
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}},
+      scales:{ y:{ticks:{color:'#888',callback:v=>'R$'+(v>=1000?(v/1000).toFixed(0)+'k':v),font:{size:11}},grid:{color:'#2a2a2a'}},
+               x:{ticks:{color:'#888',font:{size:11},maxRotation:45},grid:{display:false}} } }
+  });
+
+  const top5 = fornList.slice(0,5);
+  if(charts.pizza) charts.pizza.destroy();
+  charts.pizza = new Chart(document.getElementById('cPizza'), {
+    type:'doughnut',
+    data:{ labels:top5.map(f=>f[0].split(' ')[0]), datasets:[{ data:top5.map(f=>Math.round(f[1])), backgroundColor:['#378ADD','#1D9E75','#BA7517','#D4537E','#888780'], borderWidth:0 }] },
+    options:{ responsive:true, maintainAspectRatio:false, cutout:'60%',
+      plugins:{ legend:{ position:'bottom', labels:{ color:'#888', font:{size:11}, padding:8, boxWidth:10 } } } }
+  });
+
+  const colors = ['#378ADD','#1D9E75','#BA7517','#D4537E','#888780'];
+  const maxF = top5[0]?.[1]||1;
+  document.getElementById('fornDiv').innerHTML = top5.map((f,i)=>
+    `<div class="forn-row"><div class="forn-name" title="${f[0]}">${f[0]}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.round(f[1]/maxF*100)}%;background:${colors[i]};"></div></div><div class="bar-val">${fmt(f[1])}</div></div>`
+  ).join('');
+
+  const top6p = prodList.slice(0,6);
+  const maxP = top6p[0]?.[1].val||1;
+  document.getElementById('prodDiv').innerHTML = top6p.map((p,i)=>
+    `<div class="forn-row"><div class="forn-name" title="${p[0]}">${p[0]}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.round(p[1].val/maxP*100)}%;background:${colors[i%5]};"></div></div><div class="bar-val">${fmt(p[1].val)}</div></div>`
+  ).join('');
+
+  setStatus('Atualizado', 'ok');
+  document.getElementById('lastUpdate').textContent = 'Atualizado em ' + new Date().toLocaleString('pt-BR');
+}
+
+async function loadData() {
+  setStatus('Carregando...', 'warn');
+  document.getElementById('errorBox').style.display = 'none';
+  try {
+    const res = await fetch(PROXY + encodeURIComponent(FILE_URL));
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const text = await res.text();
+    if(!text || text.trim().length < 10) throw new Error('Arquivo vazio');
+    Papa.parse(text, {
+      header:true, skipEmptyLines:true,
+      complete: (r) => {
+        if(!r.data || r.data.length === 0) { showError('Nenhum dado encontrado no arquivo.'); return; }
+        buildDashboard(r.data);
+      },
+      error: (e) => showError('Erro ao processar: ' + e.message)
+    });
+  } catch(e) {
+    showError('Erro ao carregar dados: ' + e.message);
+    document.getElementById('mainContent').innerHTML = '<div class="spinner-wrap"><button class="refresh-btn" onclick="loadData()">Tentar novamente</button></div>';
+  }
+}
+
+loadData();
+</script>
+</body>
+</html>
